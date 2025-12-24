@@ -1,0 +1,4 @@
+highD/**/*.csv
+highD/**/*.npz
+*.log
+
