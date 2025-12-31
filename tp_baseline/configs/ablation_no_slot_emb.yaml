@@ -1,0 +1,39 @@
+data:
+  data_dir: "../../highD/data_pt/highd_T15_Tf25_hz5_flipXY_all"
+  splits_dir: "../data/splits"
+  stats_path: "../data/stats.npz"
+  batch_size: 128
+  num_workers: 4
+
+features:
+  use_neighbors: true
+  use_context: true
+  use_safety: true
+  use_preceding: true
+  use_lane: true
+  use_static: true
+
+model:
+  ego_dim: 16
+  nb_dim: 9
+  use_neighbors: true
+  use_slot_emb: false
+  T: 15
+  Tf: 25
+  K: 8
+  d_model: 128
+  nhead: 4
+  num_layers: 2
+  dropout: 0.1
+
+train:
+  ckpt_dir: "../ckpts/ablation_no_slot_emb"
+  epochs: 50
+  lr: 0.0003
+  weight_decay: 0.01
+  loss: "smoothl1"
+  seed: 42
+  use_amp: true
+  device: "cuda"
+  grad_clip_norm: 1.0
+  save_last: true
