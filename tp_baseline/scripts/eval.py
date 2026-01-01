@@ -27,7 +27,7 @@ from src.models.transformer_baseline import TransformerBaseline
 from src.models.transformer_style import TransformerStyleBaseline
 from src.losses import delta_to_abs, trajectory_loss
 from src.metrics import ade, fde
-from src.utils import load_stats_npz, set_seed
+from src.utils import load_stats_npz, set_seed, build_model
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -93,6 +93,8 @@ def evaluate_single(
 
         with autocast(device_type="cuda", enabled=use_amp):
             pred = model(x_ego, x_nb, nb_mask, style_prob=style_prob, style_valid=style_valid)
+            if isinstance(pred, (tuple, list)):
+                pred = pred[0]  # only trajectories for eval
 
         # ---- multimodal: choose best mode per sample in ABS space (minADE) ----
         # pred shapes:
@@ -333,7 +335,7 @@ def main():
         persistent_workers=(num_workers > 0),
     )
 
-    model = TransformerStyleBaseline(**cfg["model"]).to(device)
+    model = build_model(cfg).to(device)
     
     ckpt_path = Path(args.ckpt).resolve()
     if not ckpt_path.exists():

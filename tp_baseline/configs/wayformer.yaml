@@ -6,28 +6,36 @@ data:
   num_workers: 4
 
 model:
-  type: style
+  type: wayformer
   T: 25
   Tf: 25
   K: 8
+  ego_dim: 16
+  nb_dim: 9
+  use_neighbors: true
+  use_slot_emb: true
   d_model: 128
   nhead: 4
-  num_layers: 2
+  enc_layers: 2
+  dec_layers: 2
   dropout: 0.1
   predict_delta: false
-  use_style: false
-  style_dim_in: 3
-  style_dropout: 0.1
+  M: 6
+  return_scores: true
 
 train:
   epochs: 50
   lr: 0.0003
   weight_decay: 0.01
-  loss: "smoothl1"
   seed: 42
   use_amp: true
   device: "cuda"
   log_every: 50
-  ckpt_dir: "../ckpts/baseline/T25_Tf25_all"
+  ckpt_dir: "../ckpts/wayformer/T25_Tf25_all"
   grad_clip_norm: 1.0
   save_last: true
+
+  # loss weights
+  w_traj: 1.0
+  w_fde: 0.0
+  w_cls: 0.2   # score head 학습(원치 않으면 0.0)

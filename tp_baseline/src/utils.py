@@ -18,3 +18,31 @@ def load_stats_npz(path: str):
         "nb_std":   torch.from_numpy(arr["nb_std"]).float(),
     }
     return stats
+
+def build_model(cfg: dict):
+    """
+    Build model from cfg["model"].
+    cfg["model"]["type"] supports:
+      - "baseline"      -> TransformerBaseline
+      - "style"         -> TransformerStyleBaseline
+      - "wayformer"     -> WayformerBaseline (src/wayformer)
+    """
+    mcfg = cfg.get("model", {})
+    mtype = mcfg.get("type", "style")
+
+    # remove "type" from kwargs
+    kwargs = {k: v for k, v in mcfg.items() if k != "type"}
+
+    if mtype == "baseline":
+        from src.models.transformer_baseline import TransformerBaseline
+        return TransformerBaseline(**kwargs)
+
+    if mtype == "style":
+        from src.models.transformer_style import TransformerStyleBaseline
+        return TransformerStyleBaseline(**kwargs)
+
+    if mtype == "wayformer":
+        from src.wayformer.transformer_wayformer import WayformerBaseline
+        return WayformerBaseline(**kwargs)
+
+    raise ValueError(f"Unknown model.type: {mtype}")

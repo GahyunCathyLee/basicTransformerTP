@@ -24,11 +24,9 @@ from torch.amp import autocast, GradScaler
 
 from src.datasets.highd_pt_dataset import HighDPtDataset
 from src.datasets.collate import collate_batch
-from src.models.transformer_baseline import TransformerBaseline
-from src.models.transformer_style import TransformerStyleBaseline
-from src.losses import trajectory_loss, delta_to_abs
+from src.losses import trajectory_loss, delta_to_abs, multimodal_loss
+from src.utils import set_seed, load_stats_npz, build_model
 from src.metrics import ade, fde
-from src.utils import set_seed, load_stats_npz
 
 
 def _resolve_path(base: Path, p: str) -> Path:
@@ -63,7 +61,6 @@ def build_scheduler(
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
 
-
 @torch.no_grad()
 def evaluate(
     model: torch.nn.Module,
@@ -73,6 +70,7 @@ def evaluate(
     predict_delta: bool,
     w_traj: float,
     w_fde: float,
+    w_cls: float,
 ) -> Dict[str, float]:
     model.eval()
     total_loss = 0.0
@@ -93,18 +91,51 @@ def evaluate(
         x_last_abs = batch["x_last_abs"].to(device, non_blocking=True)  # (B,2)
 
         with autocast(device_type="cuda", enabled=use_amp):
-            pred = model(x_ego, x_nb, nb_mask, style_prob=style_prob, style_valid=style_valid)
-            loss = trajectory_loss(
-                pred=pred,
-                y_abs=y_abs,
-                x_last_abs=x_last_abs,
-                predict_delta=predict_delta,
-                w_traj=w_traj,
-                w_fde=w_fde,
-            )
+            out = model(x_ego, x_nb, nb_mask, style_prob=style_prob, style_valid=style_valid)
 
-        # metrics always in absolute space
-        pred_abs = delta_to_abs(pred, x_last_abs) if predict_delta else pred
+        # out can be:
+        #  - pred (B,Tf,2)  [baseline/style]
+        #  - pred (B,M,Tf,2)  [wayformer without scores]
+        #  - (pred, scores)   [wayformer with scores]
+        if isinstance(out, (tuple, list)):
+            pred, scores = out
+        else:
+            pred, scores = out, None
+
+        with autocast(device_type="cuda", enabled=use_amp):
+            if pred.dim() == 4:
+                # multimodal
+                loss, best_idx = multimodal_loss(
+                    pred=pred,
+                    y_abs=y_abs,
+                    x_last_abs=x_last_abs,
+                    predict_delta=predict_delta,
+                    score_logits=scores,
+                    w_traj=w_traj,
+                    w_fde=w_fde,
+                    w_cls=w_cls,
+                )
+
+                # metrics: evaluate best mode in ABS space
+                if predict_delta:
+                    pred_abs_all = torch.cumsum(pred, dim=2) + x_last_abs[:, None, None, :]
+                else:
+                    pred_abs_all = pred
+                pred_abs = pred_abs_all[torch.arange(pred.shape[0], device=pred.device), best_idx]
+
+            else:
+                # single-mode
+                loss = trajectory_loss(
+                    pred=pred,
+                    y_abs=y_abs,
+                    x_last_abs=x_last_abs,
+                    predict_delta=predict_delta,
+                    w_traj=w_traj,
+                    w_fde=w_fde,
+                )
+                pred_abs = delta_to_abs(pred, x_last_abs) if predict_delta else pred
+
+        # metrics
         a = ade(pred_abs, y_abs)
         f = fde(pred_abs, y_abs)
 
@@ -142,6 +173,7 @@ def train_one_epoch(
     predict_delta: bool,
     w_traj: float,
     w_fde: float,
+    w_cls: float,
 ) -> Dict[str, float]:
     model.train()
     total_loss = 0.0
@@ -156,26 +188,55 @@ def train_one_epoch(
         x_ego = batch["x_ego"].to(device, non_blocking=True)
         x_nb = batch["x_nb"].to(device, non_blocking=True)
         nb_mask = batch["nb_mask"].to(device, non_blocking=True)
+
         style_prob = batch.get("style_prob", None)
         style_valid = batch.get("style_valid", None)
-        if style_prob is not None: style_prob = style_prob.to(device, non_blocking=True)
-        if style_valid is not None: style_valid = style_valid.to(device, non_blocking=True)
+        if style_prob is not None:
+            style_prob = style_prob.to(device, non_blocking=True)
+        if style_valid is not None:
+            style_valid = style_valid.to(device, non_blocking=True)
+
         y_abs = batch["y"].to(device, non_blocking=True)
         x_last_abs = batch["x_last_abs"].to(device, non_blocking=True)  # (B,2)
 
         optimizer.zero_grad(set_to_none=True)
 
+        # ---- forward + loss ----
         with autocast(device_type="cuda", enabled=use_amp):
-            pred = model(x_ego, x_nb, nb_mask, style_prob=style_prob, style_valid=style_valid)
-            loss = trajectory_loss(
-                pred=pred,
-                y_abs=y_abs,
-                x_last_abs=x_last_abs,
-                predict_delta=predict_delta,
-                w_traj=w_traj,
-                w_fde=w_fde,
-            )
+            out = model(x_ego, x_nb, nb_mask, style_prob=style_prob, style_valid=style_valid)
 
+            # out can be:
+            #  - pred (B,Tf,2)  [baseline/style]
+            #  - pred (B,M,Tf,2)  [wayformer without scores]
+            #  - (pred, scores)   [wayformer with scores]
+            if isinstance(out, (tuple, list)):
+                pred, scores = out
+            else:
+                pred, scores = out, None
+
+            if pred.dim() == 4:
+                loss, best_idx = multimodal_loss(
+                    pred=pred,
+                    y_abs=y_abs,
+                    x_last_abs=x_last_abs,
+                    predict_delta=predict_delta,
+                    score_logits=scores,
+                    w_traj=w_traj,
+                    w_fde=w_fde,
+                    w_cls=w_cls,
+                )
+            else:
+                loss = trajectory_loss(
+                    pred=pred,
+                    y_abs=y_abs,
+                    x_last_abs=x_last_abs,
+                    predict_delta=predict_delta,
+                    w_traj=w_traj,
+                    w_fde=w_fde,
+                )
+                best_idx = None  # for clarity
+
+        # ---- backward/step (unchanged pattern) ----
         if use_amp:
             assert scaler is not None
             scaler.scale(loss).backward()
@@ -192,13 +253,22 @@ def train_one_epoch(
                 torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
             optimizer.step()
 
-        # Scheduler step PER ITERATION (important for warmup)
+        # Scheduler step PER ITERATION
         if scheduler is not None:
             scheduler.step()
 
-        # metrics (absolute space)
+        # ---- metrics (absolute space) ----
         with torch.no_grad():
-            pred_abs = delta_to_abs(pred, x_last_abs) if predict_delta else pred
+            if pred.dim() == 4:
+                # metrics: best mode in ABS space
+                if predict_delta:
+                    pred_abs_all = torch.cumsum(pred, dim=2) + x_last_abs[:, None, None, :]
+                else:
+                    pred_abs_all = pred
+                pred_abs = pred_abs_all[torch.arange(pred.shape[0], device=pred.device), best_idx]
+            else:
+                pred_abs = delta_to_abs(pred, x_last_abs) if predict_delta else pred
+
             a = ade(pred_abs, y_abs)
             f = fde(pred_abs, y_abs)
 
@@ -315,7 +385,7 @@ def main():
     )
 
     # ---- model ----
-    model = TransformerStyleBaseline(**cfg["model"]).to(device)
+    model = build_model(cfg).to(device)
 
     # ---- optimizer ----
     lr = float(cfg["train"].get("lr", 3e-4))
@@ -365,6 +435,8 @@ def main():
     for epoch in range(1, epochs + 1):
         print(f"\n[Epoch {epoch:03d}/{epochs}]")
 
+        w_cls = float(cfg["train"].get("w_cls", 0.0))
+        
         train_metrics = train_one_epoch(
             model=model,
             loader=train_loader,
@@ -378,6 +450,7 @@ def main():
             predict_delta=predict_delta,
             w_traj=w_traj,
             w_fde=w_fde,
+            w_cls=w_cls,
         )
         global_step = int(train_metrics["global_step_end"])
 
@@ -389,6 +462,7 @@ def main():
             predict_delta=predict_delta,
             w_traj=w_traj,
             w_fde=w_fde,
+            w_cls=w_cls,
         )
 
         print(
