@@ -157,22 +157,45 @@ def plot_trajs(history_xy: np.ndarray, gt_future_xy: np.ndarray, pred_future_xy:
     gt_future_xy: (Tf,2)
     pred_future_xy: (Tf,2)
     """
+    origin = history_xy[-1].copy()
+
+    history_local = history_xy - origin
+    gt_future_local = gt_future_xy - origin
+    pred_future_local = pred_future_xy - origin
+
     # concat history + gt future for the "gray" polyline
-    gt_full = np.concatenate([history_xy, gt_future_xy], axis=0)  # (T+Tf,2)
+    gt_full = np.concatenate([history_local, gt_future_local], axis=0)
 
     plt.figure(figsize=(6, 6))
-    plt.plot(gt_full[:, 0], gt_full[:, 1], linewidth=2.5, alpha=0.9)  # default color (we'll set via kwargs below)
+    plt.plot(
+        gt_full[:, 0], gt_full[:, 1],
+        color="gray",
+        linewidth=1.5,
+        marker="o",
+        markersize=3,
+        alpha=0.9,
+    )
     # recolor explicitly for clarity
     plt.gca().lines[-1].set_color("gray")
 
-    plt.plot(pred_future_xy[:, 0], pred_future_xy[:, 1], linewidth=2.5, alpha=0.95)
+    plt.plot(
+        pred_future_xy[:, 0], pred_future_xy[:, 1],
+        color="tab:blue",
+        linewidth=1.5,
+        marker="o",
+        markersize=3,
+        alpha=0.95,
+    )
     plt.gca().lines[-1].set_color("tab:blue")
 
     # start/end markers
-    plt.scatter(history_xy[0, 0], history_xy[0, 1], s=25, c="gray", marker="o", alpha=0.9, label="start")
-    plt.scatter(gt_future_xy[-1, 0], gt_future_xy[-1, 1], s=35, c="gray", marker="x", alpha=0.9, label="GT end")
-    plt.scatter(pred_future_xy[-1, 0], pred_future_xy[-1, 1], s=35, c="tab:blue", marker="x", alpha=0.9, label="Pred end")
+    plt.scatter(history_local[0, 0], history_local[0, 1], s=25, c="gray", marker="o", alpha=0.9, label="start")
+    plt.scatter(gt_future_local[-1, 0], gt_future_local[-1, 1], s=35, c="gray", marker="x", alpha=0.9, label="GT end")
+    plt.scatter(pred_future_local[-1, 0], pred_future_local[-1, 1], s=35, c="tab:blue", marker="x", alpha=0.9, label="Pred end")
 
+    # t0 위치는 항상 (0,0)
+    plt.scatter(0.0, 0.0, s=40, c="black", marker="x", alpha=0.9, label="t0")
+    
     plt.axis("equal")
     plt.grid(True, alpha=0.25)
     plt.title(title)
