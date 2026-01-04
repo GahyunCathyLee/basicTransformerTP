@@ -29,6 +29,10 @@ import yaml
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+import sys 
+
+TP_BASELINE_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(TP_BASELINE_DIR))
 
 from src.utils import load_stats_npz, build_model, set_seed
 
@@ -225,7 +229,7 @@ def main():
     predict_delta = bool(cfg.get("model", {}).get("predict_delta", False))
 
     # load pt
-    pt_dict = torch.load(str(Path(args.pt).resolve()), map_location="cpu")
+    pt_dict = torch.load(str(Path(args.pt).resolve()), map_location="cpu", weights_only=False)
 
     idx = pick_sample_index(pt_dict, args.vehicle_id, args.t0_frame)
 
