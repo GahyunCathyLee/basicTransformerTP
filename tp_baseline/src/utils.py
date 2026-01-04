@@ -44,5 +44,9 @@ def build_model(cfg: dict):
     if mtype == "wayformer":
         from src.wayformer.transformer_wayformer import WayformerBaseline
         return WayformerBaseline(**kwargs)
+    
+    if mtype == "wayformer_style":
+        from src.wayformer.transformer_wayformer import WayformerStyle
+        return WayformerStyle(**kwargs)
 
     raise ValueError(f"Unknown model.type: {mtype}")
