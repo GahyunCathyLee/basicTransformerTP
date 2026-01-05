@@ -1,7 +1,7 @@
 data:
-  data_dir: "../../highD/data_pt/highd_T25_Tf25_hz5_flipXY_all"
+  data_dir: "../../highD/data_pt/T25_Tf25_all"
   splits_dir: "../data/splits"
-  stats_path: "../data/stats.npz"
+  stats_path: "auto"
   batch_size: 128
   num_workers: 4
 

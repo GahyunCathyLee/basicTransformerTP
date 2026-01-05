@@ -16,6 +16,9 @@ import math
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+import subprocess
+import sys
+
 import yaml
 import torch
 from tqdm import tqdm
@@ -34,6 +37,14 @@ def _resolve_path(base: Path, p: str) -> Path:
     pp = Path(p)
     return pp if pp.is_absolute() else (base / pp).resolve()
 
+def make_stats_path_from_datadir(data_dir: str) -> Path:
+    """
+    data_dir: ".../T9_Tf15_all"
+    -> stats/T9_Tf15_all/stats.npz
+    """
+    data_dir = Path(data_dir)
+    dataset_name = data_dir.name  # "T9_Tf15_all"
+    return Path("stats") / dataset_name / "stats.npz"
 
 def build_scheduler(
     optimizer: torch.optim.Optimizer,
@@ -329,14 +340,36 @@ def main():
     train_split = str(splits_dir / "train.txt")
     val_split = str(splits_dir / "val.txt")
 
-    # ---- load stats ----
+    # ---- stats_path: auto -> stats/<dataset_name>/stats.npz ----
+    stats_cfg = cfg["data"].get("stats_path", "auto")
+
+    if str(stats_cfg).lower() in ("", "auto"):
+        stats_path = make_stats_path_from_datadir(data_dir)
+    else:
+        stats_path = _resolve_path(cfg_dir, stats_cfg)
+
+    # ---- load or compute stats ----
     if stats_path.exists():
+        print(f"[INFO] Loading stats from {stats_path}")
         stats = load_stats_npz(str(stats_path))
     else:
-        raise FileNotFoundError(
-            f"Stats file not found: {stats_path}\n"
-            f"Run compute_stats first to create it."
-        )
+        print(f"[INFO] Stats file not found. Computing stats for this dataset...")
+        print(f"        data_dir   = {data_dir}")
+        print(f"        train_split= {train_split}")
+        print(f"        out        = {stats_path}")
+
+        cmd = [
+            sys.executable, "-m", "scripts.compute_stats",
+            "--data_dir", data_dir,
+            "--split", train_split,
+            "--out", str(stats_path),
+        ]
+
+        print("[INFO] Running:", " ".join(cmd))
+        subprocess.check_call(cmd)
+
+        print("[INFO] Stats computation finished. Loading stats...")
+        stats = load_stats_npz(str(stats_path))
 
     # ---- datasets / loaders ----
     batch_size = int(cfg["data"].get("batch_size", 128))

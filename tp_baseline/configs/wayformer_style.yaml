@@ -1,7 +1,7 @@
 data:
-  data_dir: "../../highD/data_pt/highd_T25_Tf25_hz5_flipXY_all"
+  data_dir: "../../highD/data_pt/highd_T25_Tf25_all_9style"
   splits_dir: "../data/splits"
-  stats_path: "../data/stats.npz"
+  stats_path: "auto"
   batch_size: 128
   num_workers: 4
 
@@ -24,7 +24,7 @@ model:
   return_scores: true
 
   # style
-  style_dim_in: 3        # 6, 9 로 바꿔가며 실험
+  style_dim_in: 9        # 6, 9 로 바꿔가며 실험
   use_style_enc: true
   use_style_dec: true
   style_dropout: 0.1
@@ -38,7 +38,7 @@ train:
   use_amp: true
   device: "cuda"
   log_every: 50
-  ckpt_dir: "../ckpts/wayformer/T25_Tf25_all"
+  ckpt_dir: "../ckpts/wayformer/T25_Tf25_all_k9"
   grad_clip_norm: 1.0
   save_last: true
 
